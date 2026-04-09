@@ -366,4 +366,12 @@ git config --unset core.hooksPath
 
 ## Licencia
 
-MIT
+Este proyecto está bajo la licencia [MIT](https://opensource.org/licenses/MIT) — úsalo, modifícalo y compártelo libremente.
+
+```
+MIT License — Copyright (c) 2026 Hunkak03
+```
+
+---
+
+> Hecho con **cariño** y **pasión** por [Hunkak03](https://github.com/Hunkak03) 💚
