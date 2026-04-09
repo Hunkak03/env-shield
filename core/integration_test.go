@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ============================================================
@@ -67,14 +68,15 @@ func main() {
 	cfg := &Config{
 		EntropyThreshold: EntropyThreshold,
 		MinSecretLength:  MinSecretLength,
+		Severity:         SeverityBlock,
 	}
 
-	findings, err := ScanStagedFiles(cfg)
+	result, err := ScanStagedFiles(cfg)
 	if err != nil {
 		t.Fatalf("ScanStagedFiles error: %v", err)
 	}
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for clean file, got %d", len(findings))
+	if len(result.Findings) != 0 {
+		t.Errorf("expected 0 findings for clean file, got %d", len(result.Findings))
 	}
 }
 
@@ -100,17 +102,18 @@ var AWSKey = "AKIAIOSFODNN7EXAMPLE"
 	cfg := &Config{
 		EntropyThreshold: EntropyThreshold,
 		MinSecretLength:  MinSecretLength,
+		Severity:         SeverityBlock,
 	}
 
-	findings, err := ScanStagedFiles(cfg)
+	result, err := ScanStagedFiles(cfg)
 	if err != nil {
 		t.Fatalf("ScanStagedFiles error: %v", err)
 	}
-	if len(findings) < 1 {
-		t.Fatalf("expected >= 1 finding for AWS key, got %d", len(findings))
+	if len(result.Findings) < 1 {
+		t.Fatalf("expected >= 1 finding for AWS key, got %d", len(result.Findings))
 	}
-	if findings[0].Type != "AWS Access Key ID" {
-		t.Errorf("expected AWS Access Key ID, got %q", findings[0].Type)
+	if result.Findings[0].Type != "AWS Access Key ID" {
+		t.Errorf("expected AWS Access Key ID, got %q", result.Findings[0].Type)
 	}
 }
 
@@ -134,17 +137,18 @@ func TestIntegration_ScanStagedFiles_ForbiddenFile(t *testing.T) {
 	cfg := &Config{
 		EntropyThreshold: EntropyThreshold,
 		MinSecretLength:  MinSecretLength,
+		Severity:         SeverityBlock,
 	}
 
-	findings, err := ScanStagedFiles(cfg)
+	result, err := ScanStagedFiles(cfg)
 	if err != nil {
 		t.Fatalf("ScanStagedFiles error: %v", err)
 	}
-	if len(findings) != 1 {
-		t.Fatalf("expected 1 finding for .env file, got %d", len(findings))
+	if len(result.Findings) != 1 {
+		t.Fatalf("expected 1 finding for .env file, got %d", len(result.Findings))
 	}
-	if findings[0].Layer != "forbidden_file" {
-		t.Errorf("expected forbidden_file layer, got %q", findings[0].Layer)
+	if result.Findings[0].Layer != "forbidden_file" {
+		t.Errorf("expected forbidden_file layer, got %q", result.Findings[0].Layer)
 	}
 }
 
@@ -170,24 +174,31 @@ var AWSKey = "AKIAIOSFODNN7EXAMPLE" // env-shield-ignore
 	cfg := &Config{
 		EntropyThreshold: EntropyThreshold,
 		MinSecretLength:  MinSecretLength,
+		Severity:         SeverityBlock,
 	}
 
-	findings, err := ScanStagedFiles(cfg)
+	result, err := ScanStagedFiles(cfg)
 	if err != nil {
 		t.Fatalf("ScanStagedFiles error: %v", err)
 	}
-	if len(findings) != 0 {
-		t.Errorf("expected 0 findings for ignored line, got %d", len(findings))
+	if len(result.Findings) != 0 {
+		t.Errorf("expected 0 findings for ignored line, got %d", len(result.Findings))
 	}
 }
 
 func TestIntegration_FormatFindings_Output(t *testing.T) {
-	findings := []Finding{
-		{File: "config.py", Line: 15, Type: "AWS Access Key ID", Secret: "AKIAIOSFODNN7EXAMPLE", Layer: "regex"},
-		{File: ".env", Line: 0, Type: "Forbidden File", Secret: ".env", Layer: "forbidden_file"},
+	result := &ScanResult{
+		Findings: []Finding{
+			{File: "config.py", Line: 15, Type: "AWS Access Key ID", Secret: "AKIAIOSFODNN7EXAMPLE", Layer: "regex", Severity: SeverityBlock},
+			{File: ".env", Line: 0, Type: "Forbidden File", Secret: ".env", Layer: "forbidden_file", Severity: SeverityBlock},
+		},
+		FilesScanned: 5,
+		FilesSkipped: 2,
+		Duration:     23 * time.Millisecond,
+		BlockedCount: 2,
 	}
 
-	output := FormatFindings(findings)
+	output := FormatFindings(result)
 	if output == "" {
 		t.Fatal("expected non-empty output")
 	}
@@ -211,9 +222,16 @@ func TestIntegration_FormatFindings_Output(t *testing.T) {
 }
 
 func TestIntegration_FormatFindings_Empty(t *testing.T) {
-	output := FormatFindings(nil)
-	if output != "" {
-		t.Errorf("expected empty string for no findings, got %q", output)
+	result := &ScanResult{
+		FilesScanned: 3,
+		Duration:     15 * time.Millisecond,
+	}
+	output := FormatFindings(result)
+	if !strings.Contains(output, "No secrets detected") {
+		t.Errorf("expected 'No secrets detected' in output, got:\n%s", output)
+	}
+	if !strings.Contains(output, "scanned 3 file") {
+		t.Errorf("expected file count in output, got:\n%s", output)
 	}
 }
 

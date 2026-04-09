@@ -64,6 +64,19 @@ exit 0
 `, execPath)
 	}
 
+	// Atomic backup of existing hook
+	if _, err := os.Stat(hookPath); err == nil {
+		backupPath := hookPath + ".env-shield.bak"
+		// Avoid overwriting previous backups
+		if _, err := os.Stat(backupPath); os.IsNotExist(err) {
+			if err := copyFile(hookPath, backupPath); err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️  Warning: could not backup existing hook: %v\n", err)
+			} else {
+				fmt.Printf("   📦 Backed up existing hook → %s\n", backupPath)
+			}
+		}
+	}
+
 	if err := os.WriteFile(hookPath, []byte(hookContent), 0755); err != nil {
 		return fmt.Errorf("writing hook file: %w", err)
 	}
@@ -126,4 +139,13 @@ func EnsureGitInstalled() error {
 		return fmt.Errorf("git is not installed or not in PATH")
 	}
 	return nil
+}
+
+// copyFile copies a file from src to dst — used for hook backups.
+func copyFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0755)
 }

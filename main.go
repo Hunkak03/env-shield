@@ -60,22 +60,30 @@ func cmdScan() {
 		cfg = &core.Config{
 			EntropyThreshold: core.EntropyThreshold,
 			MinSecretLength:  core.MinSecretLength,
+			Severity:         core.SeverityBlock,
 		}
 	}
 
 	// Run scan
-	findings, err := core.ScanStagedFiles(cfg)
+	result, err := core.ScanStagedFiles(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "❌ Scan error: %v\n", err)
 		os.Exit(1)
 	}
 
-	if len(findings) > 0 {
-		fmt.Print(core.FormatFindings(findings))
+	// Check if any blocking findings exist
+	if result.BlockedCount > 0 {
+		fmt.Print(core.FormatFindings(result))
 		os.Exit(1) // Block commit
 	}
 
-	fmt.Println("✅ Env-Shield: No secrets detected.")
+	// If only warnings, print but allow commit
+	if result.WarnedCount > 0 {
+		fmt.Print(core.FormatFindings(result))
+		os.Exit(0) // Allow commit (warn mode)
+	}
+
+	fmt.Print(core.FormatFindings(result))
 	os.Exit(0) // Allow commit
 }
 
