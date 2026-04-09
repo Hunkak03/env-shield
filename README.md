@@ -156,7 +156,11 @@ Crea `.env-shield.json`:
     "\\.spec\\."
   ],
   "entropy_threshold": 4.5,
-  "min_secret_length": 16
+  "min_secret_length": 16,
+  "severity": "block",
+  "custom_patterns": [
+    { "regex": "CORP_KEY_[A-Z0-9]{20}", "name": "Corp Internal Key" }
+  ]
 }
 ```
 
@@ -166,6 +170,66 @@ Crea `.env-shield.json`:
 | `ignore_patterns` | Regex patterns de archivos a ignorar | `["\.test\.", "\.spec\."]` |
 | `entropy_threshold` | Umbral de entropía (0-8, mayor = más estricto) | `4.5` |
 | `min_secret_length` | Longitud mínima para detección por entropía | `16` |
+| `severity` | `"block"` (bloquea commit) o `"warn"` (solo avisa) | `"block"` |
+| `custom_patterns` | Patrones regex personalizados de tu empresa | `[]` |
+
+---
+
+## Mejoras Senior
+
+### 1. Detección de archivos binarios
+
+Env-Shield **no escanea** imágenes, ejecutables ni archivos de locking. Detecta por:
+
+- **Magic numbers**: Lee los primeros 6 bytes del archivo (PNG `89 50 4E 47`, JPEG `FF D8 FF`, etc.)
+- **Extensión**: `.png`, `.jpg`, `.exe`, `.zip`, `.woff2`, `.db`, `.wasm`, etc.
+- **Lock files**: `package-lock.json`, `yarn.lock`, `Cargo.lock`, `go.sum`
+
+**O(1) memoria** — nunca carga el archivo completo, solo 6 bytes del stream git.
+
+### 2. Métricas de rendimiento
+
+Cada scan muestra el tiempo y archivos procesados:
+
+```
+✅ Env-Shield: No secrets detected. (scanned 5 files in 23ms)
+```
+
+```
+🛡️  Env-Shield: SECRETS DETECTED!
+  Found 2 potential secret(s) in 8 staged file(s).
+  ⏱️  Scan time: 45ms | Files skipped (binary/ignored): 3
+```
+
+### 3. Niveles de severidad configurables
+
+```json
+{ "severity": "warn" }
+```
+
+| Modo | Comportamiento |
+|------|----------------|
+| `"block"` (default) | Bloquea el commit si encuentra cualquier secreto |
+| `"warn"` | Muestra warnings pero **permite** el commit |
+
+### 4. Patrones personalizados
+
+Añade detección para formatos específicos de tu empresa:
+
+```json
+{
+  "custom_patterns": [
+    { "regex": "CORP_KEY_[A-Z0-9]{20}", "name": "Corp Internal Key" },
+    { "regex": "INTERNAL_TOKEN_[a-f0-9]{32}", "name": "Internal Token" }
+  ]
+}
+```
+
+Se muestran con `Layer: custom` en el output.
+
+### 5. Backup atómico de hooks
+
+Si ya existía un hook anterior (Husky, pre-commit framework, otro custom), Env-Shield lo **respalda automáticamente** como `pre-commit.env-shield.bak` antes de sobrescribirlo. Nunca pierdes tu hook anterior.
 
 ---
 
@@ -193,30 +257,65 @@ Añádelo a `ignore_files` en `.env-shield.json`:
 
 ## Ejemplo de output
 
+### Commit bloqueado (severity: block)
+
 ```
 ============================================================
   🛡️  Env-Shield: SECRETS DETECTED!
 ============================================================
-  Found 2 potential secret(s) in staged files.
-  Commit BLOCKED to prevent credential leakage.
+  Found 2 potential secret(s) in 5 staged file(s).
+  🚫 2 finding(s) BLOCK commit.
+  ⏱️  Scan time: 23ms | Files skipped (binary/ignored): 3
 ============================================================
 
   [1] File: config/settings.go
       Line: 15
       Type: AWS Access Key ID
       Layer: regex
+      Severity: block
       Value: AKIA...MPLE
 
   [2] File: .env
       Line: N/A
       Type: Forbidden File
       Layer: forbidden_file
+      Severity: block
       Value: .env
 
 ============================================================
   💡 To bypass, add "// env-shield-ignore" to the line
      or add the file to ".env-shield.json" ignore list.
 ============================================================
+```
+
+### Solo warnings (severity: warn)
+
+```
+============================================================
+  🛡️  Env-Shield: SECRETS DETECTED!
+============================================================
+  Found 1 potential secret(s) in 8 staged file(s).
+  ⚠️  1 finding(s) are warnings (severity: warn).
+  ⏱️  Scan time: 18ms | Files skipped (binary/ignored): 2
+============================================================
+
+  [1] File: config.py
+      Line: 10
+      Type: Generic API Key/Secret
+      Layer: regex
+      Severity: warn
+      Value: myS...Key1
+
+============================================================
+  💡 To bypass, add "// env-shield-ignore" to the line
+     or add the file to ".env-shield.json" ignore list.
+============================================================
+```
+
+### Sin secretos
+
+```
+✅ Env-Shield: No secrets detected. (scanned 5 files in 23ms)
 ```
 
 ---
