@@ -79,8 +79,7 @@ func cmdScan() {
 		os.Exit(1)
 	}
 
-	// WarnedCount > 0 or no findings: allow commit
-	os.Exit(0)
+	// WarnedCount > 0 or no findings: allow commit (exit 0 by default)
 }
 
 func cmdInit() {

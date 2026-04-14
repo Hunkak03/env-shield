@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -24,6 +25,7 @@ const (
 	MaxWorkers        = 8
 	LineBufferSize    = 256 // initial bufio.Scanner buffer
 	ConfigFilename    = ".env-shield.json"
+	GitCommandTimeout = 30 * time.Second
 )
 
 // ============================================================
@@ -48,7 +50,7 @@ var SecretPatterns = []SecretPattern{
 	{regexp.MustCompile(`github_pat_[A-Za-z0-9_]{82,}`), "GitHub Fine-Grained PAT"},
 	{regexp.MustCompile(`xoxb-[0-9]{10,13}-[0-9]{10,13}-[A-Za-z0-9]{24,}`), "Slack Bot Token"},
 	{regexp.MustCompile(`xoxp-[0-9]{10,13}-[0-9]{10,13}-[A-Za-z0-9]{24,}`), "Slack User Token"},
-	{regexp.MustCompile(`(?i)(api_key|apikey|secret|password|passwd|pwd|token|auth_token|access_token)\s*[:=]\s*["']?[A-Za-z0-9_\-]{16,}["']?`), "Generic API Key/Secret"},
+	{regexp.MustCompile(`(?i)(api_key|apikey|auth_token|access_token)\s*[:=]\s*["']?[A-Za-z0-9_\-]{16,}["']?`), "Generic API Key/Secret"},
 	{regexp.MustCompile(`-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`), "Private Key"},
 	{regexp.MustCompile(`(?i)(mongodb|postgres|mysql|redis)://[^\s]+`), "Database Connection String"},
 	{regexp.MustCompile(`eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}`), "JWT Token"},
@@ -162,13 +164,26 @@ func IsBinaryFile(filePath string) bool {
 	if _, ok := binaryExtensions[ext]; ok {
 		return true
 	}
-	// Special case: lock files that don't have .lock extension
-	if strings.HasSuffix(filename, "-lock.json") || filename == "go.sum" {
+	// Special case: lock files and dependency manifests that shouldn't be scanned
+	knownLockFiles := map[string]struct{}{
+		"yarn.lock":       {},
+		"package-lock.json": {},
+		"Cargo.lock":      {},
+		"composer.lock":   {},
+		"Pipfile.lock":    {},
+		"poetry.lock":     {},
+		"Gemfile.lock":    {},
+		"go.sum":          {},
+		"pnpm-lock.yaml":  {},
+	}
+	if _, ok := knownLockFiles[filename]; ok {
 		return true
 	}
 
 	// Check magic numbers — read first 6 bytes from staged content
-	cmd := exec.Command("git", "show", ":"+filePath)
+	ctx, cancel := context.WithTimeout(context.Background(), GitCommandTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "show", ":"+filePath)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return false // If we can't check, assume text (safe default)
@@ -177,8 +192,11 @@ func IsBinaryFile(filePath string) bool {
 		return false
 	}
 	defer func() {
-		cmd.Process.Kill()
-		cmd.Wait() // Always wait to reap the process
+		stdout.Close()
+		if cmd.Process != nil {
+			cmd.Process.Kill()
+		}
+		cmd.Wait()
 	}()
 
 	buf := make([]byte, 6)
@@ -252,9 +270,9 @@ func ObfuscateSecret(secret string) string {
 
 func RunGitCommand(args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
-	out, err := cmd.CombinedOutput()
+	out, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("git %v: %w: %s", args, err, string(out))
+		return "", fmt.Errorf("git %v: %w", args, err)
 	}
 	return string(out), nil
 }
@@ -262,10 +280,6 @@ func RunGitCommand(args ...string) (string, error) {
 func GetStagedFiles() ([]string, error) {
 	out, err := RunGitCommand("diff", "--cached", "--name-only", "--diff-filter=ACMR")
 	if err != nil {
-		// No staged files is not an error
-		if strings.TrimSpace(out) == "" {
-			return nil, nil
-		}
 		return nil, err
 	}
 
@@ -282,7 +296,9 @@ func GetStagedFiles() ([]string, error) {
 // GetStagedFileReader returns a StagedScanner that reads staged file content
 // line by line with constant memory — never loads full file into RAM.
 func GetStagedFileReader(filePath string) (*StagedScanner, error) {
-	cmd := exec.Command("git", "show", ":"+filePath)
+	ctx, cancel := context.WithTimeout(context.Background(), GitCommandTimeout)
+	_ = cancel // Cancel is handled by context; cleanup in StagedScanner.Scan()
+	cmd := exec.CommandContext(ctx, "git", "show", ":"+filePath)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, fmt.Errorf("creating pipe for %s: %w", filePath, err)
@@ -321,8 +337,14 @@ func (s *StagedScanner) Scan() bool {
 	}
 	s.Done = true
 	// Synchronous cleanup — ensures process is fully reaped
-	s.Cmd.Process.Kill()
-	s.Cmd.Wait()
+	// Only kill if process is still running (state != nil)
+	if s.Cmd.Process != nil {
+		state, err := s.Cmd.Process.Wait()
+		if err == nil && !state.Exited() {
+			_ = s.Cmd.Process.Kill()
+			_ = s.Cmd.Wait()
+		}
+	}
 	return false
 }
 
@@ -353,6 +375,14 @@ func LoadConfig(repoRoot string) (*Config, error) {
 	// Validate severity
 	if cfg.Severity != SeverityBlock && cfg.Severity != SeverityWarn {
 		cfg.Severity = SeverityBlock // Default to block if invalid
+	}
+
+	// Validate thresholds — prevent nonsensical values
+	if cfg.EntropyThreshold < 0 {
+		cfg.EntropyThreshold = EntropyThreshold
+	}
+	if cfg.MinSecretLength < 1 {
+		cfg.MinSecretLength = MinSecretLength
 	}
 
 	// Pre-compile ignore regex patterns
@@ -570,13 +600,22 @@ func ScanStagedFiles(cfg *Config) (*ScanResult, error) {
 		return &ScanResult{}, nil
 	}
 
-	// Apply config overrides
+	// Apply config overrides (fill in zero-value defaults)
 	if cfg == nil {
 		cfg = &Config{
 			EntropyThreshold: EntropyThreshold,
 			MinSecretLength:  MinSecretLength,
 			Severity:         SeverityBlock,
 		}
+	}
+	if cfg.EntropyThreshold == 0 {
+		cfg.EntropyThreshold = EntropyThreshold
+	}
+	if cfg.MinSecretLength == 0 {
+		cfg.MinSecretLength = MinSecretLength
+	}
+	if cfg.Severity == "" {
+		cfg.Severity = SeverityBlock
 	}
 
 	// Channel for distributing work
@@ -603,7 +642,12 @@ func ScanStagedFiles(cfg *Config) (*ScanResult, error) {
 	collected := make([]FileResult, len(stagedFiles))
 	for i := 0; i < len(stagedFiles); i++ {
 		fileResult := <-results
-		collected[fileResult.Index] = fileResult
+		if fileResult.Index >= 0 && fileResult.Index < len(stagedFiles) {
+			collected[fileResult.Index] = fileResult
+		} else if fileResult.Err != nil {
+			// Panic recovery: log error, skip storing
+			fmt.Fprintf(os.Stderr, "⚠️  Warning: %v\n", fileResult.Err)
+		}
 	}
 
 	// Merge results in deterministic order
@@ -637,6 +681,18 @@ func ScanStagedFiles(cfg *Config) (*ScanResult, error) {
 // worker processes file jobs from the jobs channel and sends results.
 // Each worker streams file content line-by-line — O(1) memory per file.
 func worker(jobs <-chan FileJob, results chan<- FileResult, cfg *Config) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Send error result to prevent deadlock
+			results <- FileResult{
+				Index:        -1,
+				Findings:     nil,
+				FilesScanned: 0,
+				FilesSkipped: 0,
+				Err:          fmt.Errorf("worker panic: %v", r),
+			}
+		}
+	}()
 	for job := range jobs {
 		findings, scanned, skipped, err := analyzeFile(job.Path, cfg)
 		results <- FileResult{
@@ -660,6 +716,15 @@ func analyzeFile(filePath string, cfg *Config) ([]Finding, int, int, error) {
 			Severity:         SeverityBlock,
 		}
 	}
+	if cfg.EntropyThreshold == 0 {
+		cfg.EntropyThreshold = EntropyThreshold
+	}
+	if cfg.MinSecretLength == 0 {
+		cfg.MinSecretLength = MinSecretLength
+	}
+	if cfg.Severity == "" {
+		cfg.Severity = SeverityBlock
+	}
 
 	// Skip binary files (images, executables, archives)
 	if IsBinaryFile(filePath) {
@@ -682,6 +747,13 @@ func analyzeFile(filePath string, cfg *Config) ([]Finding, int, int, error) {
 	if err != nil {
 		return nil, 0, 1, err
 	}
+	// Guaranteed cleanup even on early return or panic
+	defer func() {
+		if scanner.Cmd.Process != nil {
+			scanner.Cmd.Process.Kill()
+		}
+		_ = scanner.Cmd.Wait()
+	}()
 
 	var findings []Finding
 	lineNum := 0

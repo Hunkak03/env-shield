@@ -60,48 +60,89 @@
 
 If you don't have Go installed, follow the official guide: https://go.dev/dl/
 
-**Windows (recommended):**
+**Windows:**
 ```cmd
-winget install GoLang.Go --accept-source-agreements
+:: Using winget (Windows 11 / Windows 10 with winget)
+winget install GoLang.Go
+
+:: Using Chocolatey
+choco install golang
+
+:: Using Scoop
+scoop install go
 ```
+After installing, **restart your terminal** (CMD, PowerShell, or Windows Terminal) so the PATH updates.
 
 **Linux:**
 ```bash
-sudo apt install golang-go        # Debian/Ubuntu
-sudo dnf install golang           # Fedora
-sudo pacman -S go                 # Arch
+# Debian / Ubuntu
+sudo apt update && sudo apt install golang-go
+
+# Fedora / RHEL
+sudo dnf install golang
+
+# Arch Linux
+sudo pacman -S go
 ```
 
 **macOS:**
 ```bash
+# Using Homebrew
 brew install go
+
+# Using MacPorts
+sudo port install go
 ```
 
 Verify your installation:
 ```bash
 go version
 ```
+> **Note:** You need Go **1.22** or later.
+
+---
 
 ### Step 2: Clone and Build
 
 ```bash
-git clone https://github.com/Hunkak03/env-shield
+git clone https://github.com/Hunkak03/env-shield.git
 cd env-shield
 go build -o env-shield .
 ```
 
-This produces `env-shield.exe` on Windows or `env-shield` on Linux/macOS.
+This produces a binary named:
+- **Windows:** `env-shield.exe`
+- **Linux / macOS:** `env-shield`
+
+> **Windows PowerShell users:** If you get an execution policy error, run the binary explicitly:
+> ```powershell
+> .\env-shield.exe install
+> ```
+
+---
 
 ### Step 3: Install the Pre-Commit Hook
 
-Navigate to your Git repository and run:
+Navigate to **any** Git repository and run:
 
 ```bash
-cd your-repo
-<path-to>/env-shield install
+cd /path/to/your-repo
+<path-to-binary>/env-shield install
 ```
 
-This automatically creates `.git/hooks/pre-commit` and configures Git to use it. You only need to do this **once per repository**.
+**Examples per platform:**
+
+| Platform | Example command |
+|----------|-----------------|
+| **Windows CMD / PowerShell** | `.\env-shield.exe install` |
+| **Linux / macOS** | `./env-shield install` |
+| **From anywhere on your system** | `/full/path/to/env-shield install` |
+
+This automatically creates `.git/hooks/pre-commit` and configures Git. You only need to do this **once per repository**.
+
+> **⚠️ Windows note:** Env-Shield automatically sets `core.hooksPath` to `.git/hooks` **only if it isn't already set**. If you already have a custom hooks path configured, Env-Shield will respect it and won't overwrite it.
+
+> **Git Bash on Windows:** The hook uses `#!/bin/sh` shebang and works out-of-the-box with Git Bash. No extra configuration needed.
 
 ---
 
@@ -116,6 +157,70 @@ This automatically creates `.git/hooks/pre-commit` and configures Git to use it.
 | `env-shield init` | Generate a default `.env-shield.json` configuration file |
 | `env-shield version` | Display version information |
 | `env-shield help` | Show help and usage |
+
+### How to Run
+
+**1. Install the hook (once per repo):**
+
+```bash
+cd your-repo
+env-shield install
+```
+
+**2. Work normally — the hook runs automatically on every `git commit`:**
+
+```bash
+git add config.py
+git commit -m "add configuration"
+```
+
+Env-Shield intercepts the commit, scans staged files, and either **allows** or **blocks** the commit based on what it finds.
+
+**3. Run a manual scan anytime (without committing):**
+
+```bash
+env-shield scan
+```
+
+This scans whatever is currently staged without requiring a commit.
+
+### How to Run — Platform-Specific Examples
+
+**Windows CMD:**
+```cmd
+cd C:\Projects\my-app
+..\env-shield\env-shield.exe install
+```
+
+**Windows PowerShell:**
+```powershell
+Set-Location C:\Projects\my-app
+.\env-shield.exe install
+```
+
+**Windows Git Bash:**
+```bash
+cd /c/Projects/my-app
+./env-shield.exe install
+```
+
+**Linux / macOS:**
+```bash
+cd ~/Projects/my-app
+./env-shield install
+```
+
+**Running from anywhere (full path):**
+```bash
+# Linux / macOS
+/home/user/bin/env-shield install
+
+# Windows CMD
+C:\tools\env-shield\env-shield.exe install
+
+# Windows PowerShell
+C:\tools\env-shield\env-shield.exe install
+```
 
 ### Typical Workflow
 
@@ -403,32 +508,147 @@ All tests pass across unit, integration, and benchmark suites.
 
 ## Troubleshooting
 
-### `go: command not found`
+### `go: command not found` / `'go' is not recognized`
 
-Go is not in your PATH. Restart your terminal or add it manually:
+Go is not in your PATH. Fix per platform:
 
-**Windows:**
+**Windows CMD:**
 ```cmd
 set PATH=C:\Program Files\Go\bin;%PATH%
 ```
 
-**Linux/macOS:**
+**Windows PowerShell:**
+```powershell
+$env:PATH += ";C:\Program Files\Go\bin"
+```
+
+**Windows (permanent — add to system environment):**
+1. Press `Win + R`, type `sysdm.cpl`, press Enter
+2. Go to **Advanced** → **Environment Variables**
+3. Under **System variables**, edit `Path` and add `C:\Program Files\Go\bin`
+4. Restart your terminal
+
+**Linux / macOS:**
 ```bash
+# Add to your shell profile (~/.bashrc, ~/.zshrc, etc.)
 export PATH=$PATH:/usr/local/go/bin
+source ~/.bashrc  # or ~/.zshrc
 ```
 
-### `error: cannot spawn .git/hooks/pre-commit`
+> **Tip:** Always **restart your terminal** after installing Go or modifying PATH.
 
-Hook execution issue on Windows. Fix by setting the hooks path:
+---
 
+### `error: cannot spawn .git/hooks/pre-commit: Permission denied`
+
+The hook file lacks execute permissions.
+
+**Linux / macOS:**
 ```bash
-git config core.hooksPath ".git/hooks"
+chmod +x .git/hooks/pre-commit
 ```
 
-Or reinstall the hook:
+**Windows:**
+This usually means Git can't find or execute the hook. Fix by reinstalling:
+```cmd
+env-shield.exe install
+```
+
+If the problem persists, verify your Git hooks path:
+```cmd
+git config core.hooksPath
+```
+If it returns nothing, the hook wasn't properly registered. Run `env-shield install` again.
+
+---
+
+### `'env-shield' is not recognized` / `command not found: env-shield`
+
+The binary isn't in your PATH. You have two options:
+
+**Option A — Use the full path every time:**
+```cmd
+:: Windows
+C:\path\to\env-shield.exe install
+```
+```bash
+# Linux / macOS
+/path/to/env-shield install
+```
+
+**Option B — Add the binary directory to your PATH:**
+
+**Windows CMD:**
+```cmd
+set PATH=C:\path\to\env-shield\dir;%PATH%
+```
+
+**Windows PowerShell (session-only):**
+```powershell
+$env:PATH += ";C:\path\to\env-shield\dir"
+```
+
+**Windows PowerShell (permanent):**
+```powershell
+[Environment]::SetEnvironmentVariable("PATH", "$env:PATH;C:\path\to\env-shield\dir", "User")
+```
+
+**Linux / macOS:**
+```bash
+echo 'export PATH=$PATH:/path/to/env-shield/dir' >> ~/.bashrc
+source ~/.bashrc
+```
+
+---
+
+### Hook doesn't run on commit
+
+**Check 1 — Is the hook file there?**
+```bash
+ls -la .git/hooks/pre-commit          # Linux / macOS
+dir .git\hooks\pre-commit             # Windows CMD
+Get-Item .git\hooks\pre-commit        # Windows PowerShell
+```
+
+**Check 2 — Is Git configured to find it?**
+```bash
+git config core.hooksPath
+```
+On Windows, this should return `.git/hooks` (or your hooks directory). If it's empty, run:
 ```bash
 env-shield install
 ```
+
+**Check 3 — Does the hook reference the correct binary path?**
+If you moved the `env-shield` binary after installing the hook, the hook will point to a nonexistent path. Re-run `env-shield install` to update the hook with the new path.
+
+**Check 4 — Windows Git Bash vs. CMD vs. PowerShell**
+The hook is a `#!/bin/sh` script. It works with **Git Bash** automatically. If you use CMD or PowerShell, make sure `env-shield install` completed successfully and set `core.hooksPath`.
+
+---
+
+### `fatal: not a git repository`
+
+You're running Env-Shield outside of a Git repository. Make sure you're inside a repo with a `.git` directory:
+```bash
+git rev-parse --git-dir
+```
+If this fails, initialize Git first:
+```bash
+git init
+```
+
+---
+
+### `env-shield init` creates config in the wrong place
+
+The config file `.env-shield.json` is created in your **repository root** (not your current directory). Make sure you run `env-shield init` from inside a Git repository:
+```bash
+cd /path/to/your-repo
+env-shield init
+```
+
+---
 
 ### False positives in test files
 
@@ -440,14 +660,47 @@ Add `// env-shield-ignore` to the specific line, or exclude test files in your c
 }
 ```
 
+---
+
+### Hook is too slow / hangs on large files
+
+Env-Shield streams files line-by-line with constant memory and skips binary files automatically. If a scan is slow, it's likely scanning large text files (e.g., minified JS, generated code). Exclude them:
+
+```json
+{
+  "ignore_patterns": ["\\.min\\.", "\\.generated\\.", "dist/.*"]
+}
+```
+
+---
+
 ### Uninstall the hook
 
+**Option 1 — Remove the hook file:**
 ```bash
-# Option 1: Remove the hook file
+# Linux / macOS
 rm .git/hooks/pre-commit
 
-# Option 2: Restore Git's default hooks path
+# Windows CMD
+del .git\hooks\pre-commit
+
+# Windows PowerShell
+Remove-Item .git\hooks\pre-commit
+```
+
+**Option 2 — Reset Git's hooks path (Windows only):**
+```bash
 git config --unset core.hooksPath
+```
+
+**Option 3 — Restore a backed-up hook:**
+Env-Shield automatically backs up existing hooks to `.git/hooks/pre-commit.env-shield.bak`. To restore:
+```bash
+# Linux / macOS
+mv .git/hooks/pre-commit.env-shield.bak .git/hooks/pre-commit
+
+# Windows
+copy .git\hooks\pre-commit.env-shield.bak .git\hooks\pre-commit
 ```
 
 ---

@@ -252,16 +252,18 @@ func setupTempRepo(t *testing.T) (dir string, cleanup func()) {
 		t.Fatal(err)
 	}
 
-	runGit := func(args ...string) error {
+	runGit := func(args ...string) {
+		t.Helper()
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
-		_, err := cmd.CombinedOutput()
-		return err
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, string(out))
+		}
 	}
 
-	_ = runGit("init")
-	_ = runGit("config", "user.email", "test@test.com")
-	_ = runGit("config", "user.name", "Test")
+	runGit("init")
+	runGit("config", "user.email", "test@test.com")
+	runGit("config", "user.name", "Test")
 
 	return dir, func() { os.RemoveAll(dir) }
 }

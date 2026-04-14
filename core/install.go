@@ -82,10 +82,14 @@ exit 0
 	}
 
 	// On Windows, set core.hooksPath so git can find the hook
+	// Only override if not already set — avoid breaking user's existing hooks
 	if runtime.GOOS == "windows" {
-		hooksPath := strings.ReplaceAll(hooksDir, "\\", "/")
-		if _, err := RunGitCommand("config", "core.hooksPath", hooksPath); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️  Warning: could not set core.hooksPath: %v\n", err)
+		existingPath, _ := RunGitCommand("config", "--get", "core.hooksPath")
+		if strings.TrimSpace(existingPath) == "" {
+			hooksPath := strings.ReplaceAll(hooksDir, "\\", "/")
+			if _, err := RunGitCommand("config", "core.hooksPath", hooksPath); err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️  Warning: could not set core.hooksPath: %v\n", err)
+			}
 		}
 	}
 
@@ -95,9 +99,14 @@ exit 0
 	return nil
 }
 
-// InitConfig creates a default .env-shield.json config file.
+// InitConfig creates a default .env-shield.json config file in the repo root.
 func InitConfig() error {
-	configPath := ConfigFilename
+	repoRoot, err := GetRepoRoot()
+	if err != nil {
+		return fmt.Errorf("not a git repository: run 'git init' first")
+	}
+
+	configPath := filepath.Join(repoRoot, ConfigFilename)
 	if _, err := os.Stat(configPath); err == nil {
 		fmt.Printf("⚠️  Config file %s already exists.\n", configPath)
 		return nil
