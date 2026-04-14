@@ -2,6 +2,12 @@
 
 > A high-performance **Git pre-commit hook** written in **Go** that blocks credential leaks before they reach your repository. Built with concurrent execution, constant memory scanning, and zero external dependencies.
 
+[![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/Hunkak03/env-shield/actions)
+[![Coverage](https://img.shields.io/badge/coverage-64.2%25-brightgreen)](https://github.com/Hunkak03/env-shield)
+[![GitHub Stars](https://img.shields.io/github/stars/Hunkak03/env-shield?style=social)](https://github.com/Hunkak03/env-shield)
+
 ---
 
 ## Table of Contents
@@ -356,7 +362,6 @@ env-shield/
 ├── main.go                     # CLI entry point (install, scan, init, help)
 ├── go.mod                      # Go module definition
 ├── README.md                   # This documentation
-├── env-setup.cmd               # Windows environment setup script
 └── core/
     ├── detector.go             # Detection engine + worker pool + streaming scanner
     ├── detector_test.go        # Unit tests + benchmarks
@@ -450,29 +455,6 @@ git config --unset core.hooksPath
 ## License
 
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
-
-```
-MIT License
-Copyright (c) 2026 Hunkak03
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
 
 ---
 
