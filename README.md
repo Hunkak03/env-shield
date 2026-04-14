@@ -5,7 +5,7 @@
 [![Go Version](https://img.shields.io/badge/Go-1.22%2B-00ADD8?logo=go)](https://go.dev/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](https://github.com/Hunkak03/env-shield/actions)
-[![Coverage](https://img.shields.io/badge/coverage-64.2%25-brightyellow)](https://github.com/Hunkak03/env-shield)
+[![Coverage](https://img.shields.io/badge/coverage-64.2%25-yellow)](https://github.com/Hunkak03/env-shield)
 [![GitHub Stars](https://img.shields.io/github/stars/Hunkak03/env-shield?style=social)](https://github.com/Hunkak03/env-shield)
 
 ---
