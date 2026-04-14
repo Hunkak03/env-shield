@@ -58,7 +58,7 @@ func main() {
 	}
 
 	// Stage it
-	runInDir(dir, "git", "add", "hello.go")
+	runInDir(t, dir, "git", "add", "hello.go")
 
 	// Change to temp dir for git commands
 	origDir, _ := os.Getwd()
@@ -93,7 +93,7 @@ var AWSKey = "AKIAIOSFODNN7EXAMPLE"
 		t.Fatal(err)
 	}
 
-	runInDir(dir, "git", "add", "config.go")
+	runInDir(t, dir, "git", "add", "config.go")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -128,7 +128,7 @@ func TestIntegration_ScanStagedFiles_ForbiddenFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	runInDir(dir, "git", "add", ".env")
+	runInDir(t, dir, "git", "add", ".env")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -165,7 +165,7 @@ var AWSKey = "AKIAIOSFODNN7EXAMPLE" // env-shield-ignore
 		t.Fatal(err)
 	}
 
-	runInDir(dir, "git", "add", "config.go")
+	runInDir(t, dir, "git", "add", "config.go")
 
 	origDir, _ := os.Getwd()
 	os.Chdir(dir)
@@ -236,10 +236,13 @@ func TestIntegration_FormatFindings_Empty(t *testing.T) {
 }
 
 // Helper
-func runInDir(dir, name string, args ...string) {
+func runInDir(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
 	cmd := exec.Command(name, args...)
 	cmd.Dir = dir
-	cmd.CombinedOutput()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s %v: %v\n%s", name, args, err, string(out))
+	}
 }
 
 func setupTempRepo(t *testing.T) (dir string, cleanup func()) {

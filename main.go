@@ -71,20 +71,16 @@ func cmdScan() {
 		os.Exit(1)
 	}
 
-	// Check if any blocking findings exist
-	if result.BlockedCount > 0 {
-		fmt.Print(core.FormatFindings(result))
-		os.Exit(1) // Block commit
-	}
-
-	// If only warnings, print but allow commit
-	if result.WarnedCount > 0 {
-		fmt.Print(core.FormatFindings(result))
-		os.Exit(0) // Allow commit (warn mode)
-	}
-
+	// Print findings once (handles both empty and populated cases)
 	fmt.Print(core.FormatFindings(result))
-	os.Exit(0) // Allow commit
+
+	// Block commit only if blocking findings exist
+	if result.BlockedCount > 0 {
+		os.Exit(1)
+	}
+
+	// WarnedCount > 0 or no findings: allow commit
+	os.Exit(0)
 }
 
 func cmdInit() {

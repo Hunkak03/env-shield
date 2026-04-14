@@ -1,30 +1,63 @@
 # 🛡️ Env-Shield
 
-**Git pre-commit hook** escrito en **Go** con concurrencia y memoria constante que bloquea commits con credenciales antes de que lleguen al repositorio.
+> A high-performance **Git pre-commit hook** written in **Go** that blocks credential leaks before they reach your repository. Built with concurrent execution, constant memory scanning, and zero external dependencies.
 
 ---
 
-## Requisitos
+## Table of Contents
 
-| Dependencia | Versión | ¿Por qué? |
-|-------------|---------|-----------|
-| **Go** | 1.22+ | Compilar y ejecutar el binario |
-| **Git** | 2.0+ | Acceder a staged files y hooks |
-
-> **0 dependencias externas.** Todo usa la stdlib de Go (`bufio`, `regexp`, `math`, `os/exec`, `sync`).
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Detection Layers](#detection-layers)
+- [Configuration](#configuration)
+- [Bypass Options](#bypass-options)
+- [Performance](#performance)
+- [Languages & Tools](#languages--tools)
+- [Project Structure](#project-structure)
+- [Testing](#testing)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+- [Author](#author)
 
 ---
 
-## Instalación
+## Features
 
-### Paso 1: Instalar Go
+- **Three-layer detection** — Regex signatures, Shannon entropy analysis, and forbidden file blocking
+- **Concurrent worker pool** — Parallel file analysis with configurable workers
+- **Constant O(1) memory** — Streams files line-by-line; never loads entire files into RAM
+- **Binary file detection** — Skips images, executables, and lock files via magic numbers and extensions
+- **Zero external dependencies** — Built entirely with the Go standard library
+- **Configurable severity levels** — `"block"` (blocks commit) or `"warn"` (allows commit with warnings)
+- **Custom regex patterns** — Add your organization's proprietary secret formats
+- **Atomic hook backup** — Automatically backs up existing hooks before installation
+- **Cross-platform** — Works on Windows, Linux, and macOS
 
-**Windows (recomendado):**
+---
+
+## Requirements
+
+| Dependency | Version | Purpose |
+|------------|---------|---------|
+| **Go** | 1.22+ | Compile and run the binary |
+| **Git** | 2.0+ | Access staged files and install hooks |
+
+> **Zero external dependencies.** Env-Shield uses only the Go standard library: `bufio`, `regexp`, `math`, `os/exec`, `sync`, and `encoding/json`.
+
+---
+
+## Installation
+
+### Step 1: Install Go
+
+If you don't have Go installed, follow the official guide: https://go.dev/dl/
+
+**Windows (recommended):**
 ```cmd
 winget install GoLang.Go --accept-source-agreements
 ```
-
-**O descarga el instalador:** https://go.dev/dl/
 
 **Linux:**
 ```bash
@@ -38,226 +71,61 @@ sudo pacman -S go                 # Arch
 brew install go
 ```
 
-**Verificar instalación:**
+Verify your installation:
 ```bash
 go version
-# → go version go1.26.2 windows/amd64
 ```
 
-### Paso 2: Clonar y compilar
+### Step 2: Clone and Build
 
 ```bash
-git clone https://github.com/hunkak03/env-shield.git
+git clone https://github.com/Hunkak03/env-shield.git
 cd env-shield
 go build -o env-shield .
 ```
 
-En Windows se genera `env-shield.exe`. En Linux/macOS se genera `env-shield`.
+This produces `env-shield.exe` on Windows or `env-shield` on Linux/macOS.
 
-### Paso 3: Instalar el hook en tu repo
+### Step 3: Install the Pre-Commit Hook
+
+Navigate to your Git repository and run:
 
 ```bash
-cd tu-repo-git
-<path-a>/env-shield install
+cd your-repo
+<path-to>/env-shield install
 ```
 
-Esto crea automáticamente `.git/hooks/pre-commit` y configura Git para usarlo.
+This automatically creates `.git/hooks/pre-commit` and configures Git to use it. You only need to do this **once per repository**.
 
 ---
 
-## Comandos
+## Usage
 
-| Comando | Descripción | Ejemplo |
-|---------|-------------|---------|
-| `env-shield install` | Instala el hook en el repo actual | `env-shield install` |
-| `env-shield scan` | Escanea archivos en staging | `git add . && env-shield scan` |
-| `env-shield init` | Crea `.env-shield.json` con config por defecto | `env-shield init` |
-| `env-shield version` | Muestra la versión | `env-shield version` |
-| `env-shield help` | Muestra ayuda | `env-shield help` |
+### Commands
 
-### Flujo típico
+| Command | Description |
+|---------|-------------|
+| `env-shield install` | Install the pre-commit hook in the current repository |
+| `env-shield scan` | Scan currently staged files for secrets |
+| `env-shield init` | Generate a default `.env-shield.json` configuration file |
+| `env-shield version` | Display version information |
+| `env-shield help` | Show help and usage |
+
+### Typical Workflow
 
 ```bash
-# 1. Instalar (una vez por repo)
+# 1. Install the hook (once per repository)
 env-shield install
 
-# 2. Trabajar normalmente
-echo 'API_KEY = "AKIAIOSFODNN7EXAMPLE"' > config.go
+# 2. Work normally — stage and commit files
 git add config.go
-git commit -m "add config"
+git commit -m "add configuration"
 
-# ← Env-Shield detecta el secreto y BLOQUEA el commit automáticamente
+# ← Env-Shield automatically intercepts and scans staged files.
+#   If secrets are detected, the commit is blocked with a detailed report.
 ```
 
----
-
-## Detección: 3 Capas
-
-### Capa 1 — Regex (Firmas conocidas)
-
-16 patrones precompilados que detectan:
-
-| Proveedor | Patrón | Ejemplo |
-|-----------|--------|---------|
-| **AWS** | `AKIA[0-9A-Z]{16}` | `AKIAIOSFODNN7EXAMPLE` |
-| **AWS Secret** | Asignación contextual | `aws_secret_access_key = wJalr...` |
-| **Stripe** | `sk_live_...`, `rk_live_...`, `pk_live_...` | `sk_live_abc123...` |
-| **Google API** | `AIza...` | `AIzaSyA1B2C3D4...` |
-| **Google OAuth** | `ya29....` | `ya29.a0AfH...` |
-| **GitHub PAT** | `ghp_...` | `ghp_ABCDEF...` |
-| **GitHub OAuth** | `gho_...` | `gho_ABCDEF...` |
-| **GitHub Fine-Grained** | `github_pat_...` | `github_pat_11A...` |
-| **Slack Bot** | `xoxb-...` | `xoxb-12345...` |
-| **Slack User** | `xoxp-...` | `xoxp-12345...` |
-| **Private Keys** | `-----BEGIN ... PRIVATE KEY-----` | PEM headers |
-| **JWT** | `eyJ....` | `eyJhbGciOi...` |
-| **DB Strings** | `mongodb://`, `postgres://`, `mysql://`, `redis://` | Connection URIs |
-| **Genérico** | `api_key = "..."`, `token = "..."` | Asignaciones de variables |
-
-### Capa 2 — Entropía de Shannon
-
-Identifica cadenas con **entropía ≥ 4.5** en asignaciones de variables. Detecta tokens genéricos que no encajan en ningún patrón fijo.
-
-```python
-# Esto se detecta por alta entropía aunque no sea un patrón conocido
-TOKEN = "xK9mP2vLqR7nW4jTsY8aB3cD5eFgH"
-# Entropía: 4.72 → DETECTADO
-```
-
-### Capa 3 — Archivos prohibidos
-
-Bloquea por nombre o extensión:
-
-| Tipo | Archivos |
-|------|----------|
-| **Entorno** | `.env`, `.env.local`, `.env.production`, `.env.staging` |
-| **Certificados** | `.pem`, `.key`, `.p12`, `.pfx`, `.jks`, `.keystore` |
-| **SSH Keys** | `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519` |
-| **Credenciales** | `credentials.json`, `service-account.json` |
-| **Config sensibles** | `.npmrc`, `.pypirc`, `.dockercfg`, `.htpasswd` |
-
----
-
-## Configuración
-
-Genera el archivo por defecto:
-```bash
-env-shield init
-```
-
-Crea `.env-shield.json`:
-```json
-{
-  "ignore_files": [
-    "test/fixtures/keys.pem"
-  ],
-  "ignore_patterns": [
-    "\\.test\\.",
-    "\\.spec\\."
-  ],
-  "entropy_threshold": 4.5,
-  "min_secret_length": 16,
-  "severity": "block",
-  "custom_patterns": [
-    { "regex": "CORP_KEY_[A-Z0-9]{20}", "name": "Corp Internal Key" }
-  ]
-}
-```
-
-| Opción | Descripción | Default |
-|--------|-------------|---------|
-| `ignore_files` | Rutas exactas de archivos a ignorar | `[]` |
-| `ignore_patterns` | Regex patterns de archivos a ignorar | `["\.test\.", "\.spec\."]` |
-| `entropy_threshold` | Umbral de entropía (0-8, mayor = más estricto) | `4.5` |
-| `min_secret_length` | Longitud mínima para detección por entropía | `16` |
-| `severity` | `"block"` (bloquea commit) o `"warn"` (solo avisa) | `"block"` |
-| `custom_patterns` | Patrones regex personalizados de tu empresa | `[]` |
-
----
-
-## Mejoras Senior
-
-### 1. Detección de archivos binarios
-
-Env-Shield **no escanea** imágenes, ejecutables ni archivos de locking. Detecta por:
-
-- **Magic numbers**: Lee los primeros 6 bytes del archivo (PNG `89 50 4E 47`, JPEG `FF D8 FF`, etc.)
-- **Extensión**: `.png`, `.jpg`, `.exe`, `.zip`, `.woff2`, `.db`, `.wasm`, etc.
-- **Lock files**: `package-lock.json`, `yarn.lock`, `Cargo.lock`, `go.sum`
-
-**O(1) memoria** — nunca carga el archivo completo, solo 6 bytes del stream git.
-
-### 2. Métricas de rendimiento
-
-Cada scan muestra el tiempo y archivos procesados:
-
-```
-✅ Env-Shield: No secrets detected. (scanned 5 files in 23ms)
-```
-
-```
-🛡️  Env-Shield: SECRETS DETECTED!
-  Found 2 potential secret(s) in 8 staged file(s).
-  ⏱️  Scan time: 45ms | Files skipped (binary/ignored): 3
-```
-
-### 3. Niveles de severidad configurables
-
-```json
-{ "severity": "warn" }
-```
-
-| Modo | Comportamiento |
-|------|----------------|
-| `"block"` (default) | Bloquea el commit si encuentra cualquier secreto |
-| `"warn"` | Muestra warnings pero **permite** el commit |
-
-### 4. Patrones personalizados
-
-Añade detección para formatos específicos de tu empresa:
-
-```json
-{
-  "custom_patterns": [
-    { "regex": "CORP_KEY_[A-Z0-9]{20}", "name": "Corp Internal Key" },
-    { "regex": "INTERNAL_TOKEN_[a-f0-9]{32}", "name": "Internal Token" }
-  ]
-}
-```
-
-Se muestran con `Layer: custom` en el output.
-
-### 5. Backup atómico de hooks
-
-Si ya existía un hook anterior (Husky, pre-commit framework, otro custom), Env-Shield lo **respalda automáticamente** como `pre-commit.env-shield.bak` antes de sobrescribirlo. Nunca pierdes tu hook anterior.
-
----
-
-## Bypass
-
-### Ignorar una línea concreta
-
-Añade un comentario con `env-shield-ignore`:
-
-```go
-var TestKey = "AKIAIOSFODNN7EXAMPLE" // env-shield-ignore
-```
-
-### Ignorar un archivo entero
-
-Añádelo a `ignore_files` en `.env-shield.json`:
-
-```json
-{
-  "ignore_files": ["test/testdata/secret.pem"]
-}
-```
-
----
-
-## Ejemplo de output
-
-### Commit bloqueado (severity: block)
+### Example Output — Blocked Commit
 
 ```
 ============================================================
@@ -288,31 +156,7 @@ Añádelo a `ignore_files` en `.env-shield.json`:
 ============================================================
 ```
 
-### Solo warnings (severity: warn)
-
-```
-============================================================
-  🛡️  Env-Shield: SECRETS DETECTED!
-============================================================
-  Found 1 potential secret(s) in 8 staged file(s).
-  ⚠️  1 finding(s) are warnings (severity: warn).
-  ⏱️  Scan time: 18ms | Files skipped (binary/ignored): 2
-============================================================
-
-  [1] File: config.py
-      Line: 10
-      Type: Generic API Key/Secret
-      Layer: regex
-      Severity: warn
-      Value: myS...Key1
-
-============================================================
-  💡 To bypass, add "// env-shield-ignore" to the line
-     or add the file to ".env-shield.json" ignore list.
-============================================================
-```
-
-### Sin secretos
+### Example Output — Clean Scan
 
 ```
 ✅ Env-Shield: No secrets detected. (scanned 5 files in 23ms)
@@ -320,15 +164,135 @@ Añádelo a `ignore_files` en `.env-shield.json`:
 
 ---
 
-## Arquitectura
+## Detection Layers
 
-### Worker Pool Concurrente
+### Layer 1 — Regex Signatures (Known Patterns)
+
+16 precompiled patterns that detect provider-specific secrets:
+
+| Provider | Pattern | Example |
+|----------|---------|---------|
+| **AWS Access Key** | `AKIA[0-9A-Z]{16}` | `AKIAIOSFODNN7EXAMPLE` |
+| **AWS Secret Key** | Contextual assignment | `aws_secret_access_key = wJalr...` |
+| **Stripe** | `sk_live_`, `rk_live_`, `pk_live_` | `sk_live_abc123...` |
+| **Google API Key** | `AIza...` | `AIzaSyA1B2C3D4...` |
+| **Google OAuth** | `ya29....` | `ya29.a0AfH...` |
+| **GitHub PAT** | `ghp_...` | `ghp_ABCDEF...` |
+| **GitHub OAuth** | `gho_...` | `gho_ABCDEF...` |
+| **GitHub Fine-Grained PAT** | `github_pat_...` | `github_pat_11A...` |
+| **Slack Bot Token** | `xoxb-...` | `xoxb-12345...` |
+| **Slack User Token** | `xoxp-...` | `xoxp-12345...` |
+| **Private Keys** | `-----BEGIN ... PRIVATE KEY-----` | PEM/EC/DSA/RSA headers |
+| **JWT Tokens** | `eyJ....` | `eyJhbGciOi...` |
+| **Database URIs** | `mongodb://`, `postgres://`, `mysql://`, `redis://` | Connection strings |
+| **Generic API Key** | `api_key = "..."`, `token = "..."` | Variable assignments |
+
+### Layer 2 — Shannon Entropy Analysis
+
+Identifies high-entropy strings (entropy ≥ 4.5) in variable assignments. Detects generic tokens that don't match any fixed pattern.
+
+```python
+# Detected by high entropy even without a known pattern
+TOKEN = "xK9mP2vLqR7nW4jTsY8aB3cD5eFgH"
+# Entropy: 4.72 → DETECTED
+```
+
+### Layer 3 — Forbidden File Blocking
+
+Blocks files by name or extension:
+
+| Category | Files |
+|----------|-------|
+| **Environment** | `.env`, `.env.local`, `.env.production`, `.env.staging` |
+| **Certificates** | `.pem`, `.key`, `.p12`, `.pfx`, `.jks`, `.keystore` |
+| **SSH Keys** | `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519` |
+| **Credentials** | `credentials.json`, `service-account.json` |
+| **Sensitive Config** | `.npmrc`, `.pypirc`, `.dockercfg`, `.htpasswd` |
+
+---
+
+## Configuration
+
+Generate a default configuration file:
+
+```bash
+env-shield init
+```
+
+This creates `.env-shield.json` in your repository root:
+
+```json
+{
+  "ignore_files": [
+    "test/fixtures/keys.pem"
+  ],
+  "ignore_patterns": [
+    "\\.test\\.",
+    "\\.spec\\."
+  ],
+  "entropy_threshold": 4.5,
+  "min_secret_length": 16,
+  "severity": "block",
+  "custom_patterns": [
+    { "regex": "CORP_KEY_[A-Z0-9]{20}", "name": "Corp Internal Key" }
+  ]
+}
+```
+
+### Configuration Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `ignore_files` | Exact file paths to skip scanning | `[]` |
+| `ignore_patterns` | Regex patterns matching filenames to skip | `["\\.test\\.", "\\.spec\\."]` |
+| `entropy_threshold` | Shannon entropy threshold (0–8; higher = stricter) | `4.5` |
+| `min_secret_length` | Minimum string length for entropy detection | `16` |
+| `severity` | `"block"` (blocks commit) or `"warn"` (prints warnings, allows commit) | `"block"` |
+| `custom_patterns` | Organization-specific regex patterns | `[]` |
+
+---
+
+## Bypass Options
+
+### Ignore a Specific Line
+
+Add a comment containing `env-shield-ignore`:
+
+```go
+var TestKey = "AKIAIOSFODNN7EXAMPLE" // env-shield-ignore
+```
+
+### Ignore an Entire File
+
+Add the file path to `ignore_files` in `.env-shield.json`:
+
+```json
+{
+  "ignore_files": ["test/testdata/secret.pem"]
+}
+```
+
+### Ignore by Pattern
+
+Add a regex pattern to `ignore_patterns`:
+
+```json
+{
+  "ignore_patterns": ["test/fixtures/.*", "mocks/.*"]
+}
+```
+
+---
+
+## Performance
+
+### Concurrent Worker Pool
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                   ScanStagedFiles                    │
 │                                                      │
-│  git diff --cached ──► Lista de archivos             │
+│  git diff --cached ──► File list                     │
 │                              │                       │
 │                    ┌─────────▼─────────┐             │
 │                    │   Jobs Channel    │             │
@@ -338,83 +302,97 @@ Añádelo a `ignore_files` en `.env-shield.json`:
 │              │               │               │       │
 │         ┌────▼───┐    ┌─────▼────┐   ┌──────▼──┐    │
 │         │Worker 1│    │Worker 2  │   │Worker N │    │
-│         │        │    │          │   │         │    │
 │         │stream  │    │stream    │   │stream   │    │
 │         │line × N│    │line × N  │   │line × N │    │
 │         └────┬───┘    └─────┬────┘   └──────┬──┘    │
 │              └───────────────┼───────────────┘       │
 │                    ┌─────────▼─────────┐             │
 │                    │ Results Channel   │             │
-│                    │ (chan FileResult) │             │
 │                    └─────────┬─────────┘             │
 │                              ▼                       │
-│                    Findings agregados                │
+│                    Aggregated findings               │
 └─────────────────────────────────────────────────────┘
 ```
 
-### Memoria Constante O(1)
+### Constant O(1) Memory
 
-Cada archivo se procesa como un **stream** — línea a línea vía `bufio.Scanner` pipeado desde `git show :<file>`. **Nunca** se carga el contenido completo en memoria.
+Each file is processed as a **stream** — line by line via `bufio.Scanner` piped from `git show :<file>`. The full file content is **never** loaded into application memory.
 
-```
-git show :config.py ──► stdout pipe ──► bufio.Scanner ──► procesa línea N
-                              │
-                        Nunca se bufferiza
-                        en memoria de la app
-```
+| Metric | Value |
+|--------|-------|
+| **Memory per worker** | O(1) — independent of file size |
+| **Throughput** | O(n/m) where n = files, m = workers |
+| **Concurrent workers** | 8 (`MaxWorkers` constant) |
+| **Allocations in hot path** | 0 — frequency maps use bounded charset |
 
-| Métrica | Valor |
-|---------|-------|
-| **Memoria por worker** | O(1) — independiente del tamaño del archivo |
-| **Throughput** | O(n/m) donde n = archivos, m = workers |
-| **Workers simultáneos** | 8 (`MaxWorkers`) |
-| **Allocs en hot path** | 0 — todo usa mapas de frecuencia en stack |
+### Binary File Detection
 
----
+Env-Shield skips binary files (images, executables, archives) using:
 
-## Tests
-
-```bash
-# Todos los tests (40 total)
-go test ./... -v
-
-# Solo unit tests
-go test ./core -v -run "Test(CalculateEntropy|Obfuscate|Detect)"
-
-# Benchmarks
-go test ./core -bench=. -benchmem
-
-# Solo integration tests (requiere git)
-go test ./core -run "TestIntegration" -v
-```
-
-**Resultado:**
-```
-=== RUN   TestCalculateEntropy_Empty          → PASS
-=== RUN   TestDetectRegexSecrets_AWSAccessKey → PASS
-=== RUN   TestDetectForbiddenFile_EnvFile     → PASS
-=== RUN   TestIntegration_ScanStagedFiles_AWSSecret → PASS
-...
-40/40 tests passing
-```
+- **Magic numbers** — Reads only the first 6 bytes from the Git stream
+- **File extensions** — `.png`, `.jpg`, `.exe`, `.zip`, `.woff2`, `.db`, `.wasm`, etc.
+- **Lock files** — `package-lock.json`, `yarn.lock`, `Cargo.lock`, `go.sum`
 
 ---
 
-## Estructura del proyecto
+## Languages & Tools
+
+| Category | Technology |
+|----------|------------|
+| **Language** | Go 1.22+ |
+| **Concurrency** | Goroutines + Channels (worker pool pattern) |
+| **Testing** | Go `testing` package (unit + integration + benchmarks) |
+| **Regex Engine** | Go `regexp` (RE2, linear-time matching) |
+| **Git Integration** | `git diff --cached`, `git show`, `git rev-parse` |
+| **Build Tool** | `go build` |
+| **Platform Support** | Windows, Linux, macOS |
+
+---
+
+## Project Structure
 
 ```
 env-shield/
 ├── main.go                     # CLI entry point (install, scan, init, help)
 ├── go.mod                      # Go module definition
-├── env-shield / env-shield.exe # Binario compilado
-├── README.md                   # Esta documentación
+├── README.md                   # This documentation
+├── env-setup.cmd               # Windows environment setup script
 └── core/
-    ├── detector.go             # Motor de detección + worker pool
-    ├── detector_test.go        # 34 unit tests + 6 benchmarks
-    ├── integration_test.go     # 6 E2E tests con repos git reales
-    ├── output.go               # Formateo de output en consola
-    └── install.go              # Instalación de hooks + gestión de config
+    ├── detector.go             # Detection engine + worker pool + streaming scanner
+    ├── detector_test.go        # Unit tests + benchmarks
+    ├── integration_test.go     # End-to-end tests with real Git repositories
+    ├── output.go               # Console output formatting
+    └── install.go              # Hook installation + configuration management
 ```
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+go test ./... -v
+
+# Unit tests only
+go test ./core -v -run "Test(CalculateEntropy|Obfuscate|Detect)"
+
+# Integration tests only (requires Git installed)
+go test ./core -v -run "TestIntegration"
+
+# Benchmarks
+go test ./core -bench=. -benchmem
+
+# Tests with code coverage
+go test ./... -cover
+```
+
+### Test Coverage
+
+```
+ok  github.com/hunkak03/env-shield/core  coverage: 64.2% of statements
+```
+
+All tests pass across unit, integration, and benchmark suites.
 
 ---
 
@@ -422,7 +400,7 @@ env-shield/
 
 ### `go: command not found`
 
-Go no está en el PATH. Reinicia la terminal o añade Go manualmente:
+Go is not in your PATH. Restart your terminal or add it manually:
 
 **Windows:**
 ```cmd
@@ -436,41 +414,77 @@ export PATH=$PATH:/usr/local/go/bin
 
 ### `error: cannot spawn .git/hooks/pre-commit`
 
-Problema con hooks en Windows. Solución:
+Hook execution issue on Windows. Fix by setting the hooks path:
+
 ```bash
 git config core.hooksPath ".git/hooks"
 ```
-O reinstala el hook: `env-shield install`
 
-### Detecta falsos positivos en tests
+Or reinstall the hook:
+```bash
+env-shield install
+```
 
-Añade `// env-shield-ignore` a la línea o excluye archivos de test en `.env-shield.json`:
+### False positives in test files
+
+Add `// env-shield-ignore` to the specific line, or exclude test files in your config:
+
 ```json
 {
   "ignore_patterns": ["\\.test\\.", "\\.spec\\.", "test_"]
 }
 ```
 
-### Quiero desinstalar el hook
+### Uninstall the hook
 
 ```bash
-# Opción 1: Eliminar el archivo
+# Option 1: Remove the hook file
 rm .git/hooks/pre-commit
 
-# Opción 2: Restaurar hooks por defecto de git
+# Option 2: Restore Git's default hooks path
 git config --unset core.hooksPath
 ```
 
 ---
 
-## Licencia
+## License
 
-Este proyecto está bajo la licencia [MIT](https://opensource.org/licenses/MIT) — úsalo, modifícalo y compártelo libremente.
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
 
 ```
-MIT License — Copyright (c) 2026 Hunkak03
+MIT License
+Copyright (c) 2026 Hunkak03
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ---
 
-> Hecho con **cariño** y **pasión** por [Hunkak03](https://github.com/Hunkak03) 💚
+## Author
+
+**Env-Shield** is designed, developed, and maintained by **[Hunkak03](https://github.com/Hunkak03)**.
+
+- 🌐 GitHub: [github.com/Hunkak03](https://github.com/Hunkak03)
+- 💼 Project: [github.com/Hunkak03/env-shield](https://github.com/Hunkak03/env-shield)
+
+---
+
+<p align="center">
+  Made with 💚 by <strong>Hunkak03</strong>
+</p>

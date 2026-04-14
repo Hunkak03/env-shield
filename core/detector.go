@@ -149,7 +149,7 @@ var binaryExtensions = map[string]struct{}{
 	".pyc": {}, ".pyo": {}, ".class": {}, ".jar": {}, ".war": {},
 	".woff": {}, ".woff2": {}, ".ttf": {}, ".eot": {}, ".otf": {},
 	".wasm": {}, ".db": {}, ".sqlite": {}, ".sqlite3": {},
-	".lock": {}, "lock": {}, // package-lock.json, Cargo.lock, etc.
+	".lock": {}, // yarn.lock, Cargo.lock, etc.
 }
 
 // IsBinaryFile checks if a staged file is binary by extension or magic numbers.
@@ -162,8 +162,8 @@ func IsBinaryFile(filePath string) bool {
 	if _, ok := binaryExtensions[ext]; ok {
 		return true
 	}
-	// Special case: lock files (package-lock.json, yarn.lock)
-	if strings.HasSuffix(filename, "-lock.json") || strings.HasSuffix(filename, ".lock") || filename == "yarn.lock" || filename == "go.sum" || filename == "package-lock.json" {
+	// Special case: lock files that don't have .lock extension
+	if strings.HasSuffix(filename, "-lock.json") || filename == "go.sum" {
 		return true
 	}
 
@@ -176,7 +176,10 @@ func IsBinaryFile(filePath string) bool {
 	if err := cmd.Start(); err != nil {
 		return false
 	}
-	defer func() { cmd.Process.Kill(); cmd.Wait() }()
+	defer func() {
+		cmd.Process.Kill()
+		cmd.Wait() // Always wait to reap the process
+	}()
 
 	buf := make([]byte, 6)
 	n, err := stdout.Read(buf)
@@ -290,8 +293,10 @@ func GetStagedFileReader(filePath string) (*StagedScanner, error) {
 	}
 
 	scanner := bufio.NewScanner(stdout)
-	// Set initial buffer — scanner grows as needed but starts small
-	scanner.Buffer(make([]byte, LineBufferSize), 1024*1024) // max 1MB line (practical limit)
+	// Set initial buffer — scanner grows as needed.
+	// Max line size set to 100MB to handle minified files, generated code,
+	// and long base64 strings without truncation.
+	scanner.Buffer(make([]byte, LineBufferSize), 100*1024*1024) // max 100MB line
 
 	return &StagedScanner{
 		Scanner: scanner,
@@ -315,11 +320,9 @@ func (s *StagedScanner) Scan() bool {
 		return true
 	}
 	s.Done = true
-	// Process cleanup — non-blocking drain
-	go func() {
-		s.Cmd.Process.Kill()
-		s.Cmd.Wait()
-	}()
+	// Synchronous cleanup — ensures process is fully reaped
+	s.Cmd.Process.Kill()
+	s.Cmd.Wait()
 	return false
 }
 
@@ -596,12 +599,18 @@ func ScanStagedFiles(cfg *Config) (*ScanResult, error) {
 	}
 	close(jobs)
 
-	// Collect results
+	// Collect results — store in pre-allocated slice to preserve order
+	collected := make([]FileResult, len(stagedFiles))
+	for i := 0; i < len(stagedFiles); i++ {
+		fileResult := <-results
+		collected[fileResult.Index] = fileResult
+	}
+
+	// Merge results in deterministic order
 	result := &ScanResult{
 		Findings: make([]Finding, 0),
 	}
-	for i := 0; i < len(stagedFiles); i++ {
-		fileResult := <-results
+	for _, fileResult := range collected {
 		if fileResult.Err != nil {
 			fmt.Fprintf(os.Stderr, "⚠️  Warning: %v\n", fileResult.Err)
 			continue
@@ -643,24 +652,29 @@ func worker(jobs <-chan FileJob, results chan<- FileResult, cfg *Config) {
 // analyzeFile scans a single staged file using streaming (constant memory).
 // Returns findings, files scanned count, files skipped count, and error.
 func analyzeFile(filePath string, cfg *Config) ([]Finding, int, int, error) {
+	// Defensive: normalize nil config to safe defaults
+	if cfg == nil {
+		cfg = &Config{
+			EntropyThreshold: EntropyThreshold,
+			MinSecretLength:  MinSecretLength,
+			Severity:         SeverityBlock,
+		}
+	}
+
 	// Skip binary files (images, executables, archives)
 	if IsBinaryFile(filePath) {
 		return nil, 0, 1, nil
 	}
 
-	// Layer 3: Check forbidden files first (fast path)
-	severity := SeverityBlock
-	if cfg != nil {
-		severity = cfg.Severity
-	}
-	forbiddenFindings := DetectForbiddenFile(filePath, severity)
-	if len(forbiddenFindings) > 0 {
-		return forbiddenFindings, 0, 1, nil // Skip content for forbidden files
-	}
-
-	// Check if file is ignored by config
+	// Check if file is ignored by config — user overrides take priority
 	if IsIgnoredFile(filePath, cfg) {
 		return nil, 0, 1, nil
+	}
+
+	// Layer 3: Check forbidden files (fast path)
+	forbiddenFindings := DetectForbiddenFile(filePath, cfg.Severity)
+	if len(forbiddenFindings) > 0 {
+		return forbiddenFindings, 0, 1, nil // Skip content for forbidden files
 	}
 
 	// Get streaming scanner for staged content
@@ -681,7 +695,7 @@ func analyzeFile(filePath string, cfg *Config) ([]Finding, int, int, error) {
 		findings = append(findings, DetectRegexSecrets(filePath, line, lineNum, cfg)...)
 
 		// Layer 2: Entropy detection
-		findings = append(findings, DetectEntropySecrets(filePath, line, lineNum, cfg.EntropyThreshold, cfg.MinSecretLength, severity)...)
+		findings = append(findings, DetectEntropySecrets(filePath, line, lineNum, cfg.EntropyThreshold, cfg.MinSecretLength, cfg.Severity)...)
 	}
 
 	return findings, 1, 0, nil
