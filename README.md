@@ -79,7 +79,7 @@ go version
 ### Step 2: Clone and Build
 
 ```bash
-git clone https://github.com/Hunkak03/env-shield.git
+git clone https://github.com/xxxxxx/xxxxxx
 cd env-shield
 go build -o env-shield .
 ```
